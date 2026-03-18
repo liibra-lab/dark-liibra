@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LIIBRA::DARK</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: #080808;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+    }
+    #game-container canvas { display: block; }
+    #info {
+      color: #444;
+      font-size: .6rem;
+      letter-spacing: .15em;
+      margin-top: 10px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container"></div>
+  <div id="info">WASD / ARROWS · SPACE attack · hit red orbs → blue → damages boss</div>
+
+  <!-- ES Module entry — requires a bundler (Vite/Webpack) or a dev server -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

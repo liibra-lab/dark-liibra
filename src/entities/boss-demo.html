@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LIIBRA DARK — Boss Demo (Fixed)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080808;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:Courier New,monospace}
+#game-container canvas{display:block}
+#info{color:#444;font-size:.65rem;margin-top:10px;letter-spacing:.15em;text-transform:uppercase}
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+<div id="info">WASD / ARROWS move · SPACE attack · reflect red orbs</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+const W=640,H=480
+
+const C={
+bg:0x080808,floor:0x111111,floorAlt:0x0e0e0e,wall:0x0a0a0a,
+player:0xc8c0b0,playerHi:0xffffff,sword:0x888070,
+boss:0x991111,bossDark:0x550808,bossEye:0xff2200,
+orb:0xcc3300,orbGlow:0xff5500,
+blueOrb:0x0055ff,blueOrbGlow:0x44aaff,blueOrbCore:0xaaddff,
+hpGood:0x882200,hpLow:0xff2200,ui:0x333025
+}
+
+class GameScene extends Phaser.Scene{
+constructor(){super('Game')}
+
+create(){
+this.cameras.main.setBackgroundColor(C.bg)
+
+const g=this.add.graphics()
+for(let y=0;y<H;y+=32){
+for(let x=0;x<W;x+=32){
+g.fillStyle((x/32+y/32)%2?C.floor:C.floorAlt,1)
+g.fillRect(x,y,32,32)
+}}
+
+g.fillStyle(C.wall,1)
+g.fillRect(0,0,W,20)
+g.fillRect(0,H-20,W,20)
+g.fillRect(0,0,20,H)
+g.fillRect(W-20,0,20,H)
+
+this.player=this.createPlayer(100,H/2)
+this.boss=this.createBoss(W-130,H/2)
+
+this.playerAttacks=this.add.group()
+this.projectiles=this.add.group()
+this.particles=this.add.group()
+
+this.createUI()
+
+this.keys=this.input.keyboard.addKeys({
+up:'W',down:'S',left:'A',right:'D',
+upArr:'UP',downArr:'DOWN',leftArr:'LEFT',rightArr:'RIGHT',
+attack:'SPACE'
+})
+
+this.attackCooldown=0
+this.invincible=0
+this.bossPhase=1
+this.bossState='idle'
+this.bossStateTimer=1
+this.bossHitTimer=0
+
+this.createLighting()
+}
+
+createLighting(){
+this.light=this.add.graphics()
+this.light.setDepth(100)
+}
+
+updateLighting(){
+this.light.clear()
+this.light.fillStyle(0x000000,0.65)
+this.light.fillRect(0,0,W,H)
+
+const grd=this.light.createRadialGradient(
+this.player.x,this.player.y,20,
+this.player.x,this.player.y,120
+)
+
+grd.addColorStop(0,'rgba(0,0,0,0)')
+grd.addColorStop(1,'rgba(0,0,0,0.9)')
+
+this.light.fillStyle(grd)
+this.light.fillRect(this.player.x-120,this.player.y-120,240,240)
+}
+
+createPlayer(x,y){
+const p={x,y,hp:10,maxHp:10,speed:160,facing:1}
+
+const body=this.add.graphics()
+body.fillStyle(C.player,1)
+body.fillRect(-6,-14,12,16)
+body.fillRect(-5,-24,10,10)
+
+const shadow=this.add.graphics()
+shadow.fillStyle(0x000000,.4)
+shadow.fillEllipse(0,10,20,8)
+
+p.container=this.add.container(x,y,[shadow,body])
+p.body=body
+return p
+}
+
+createBoss(x,y){
+const b={x,y,hp:60,maxHp:60}
+
+b.core=this.add.graphics()
+b.core.fillStyle(C.boss,1)
+b.core.fillEllipse(0,0,60,54)
+
+b.container=this.add.container(x,y,[b.core])
+return b
+}
+
+createUI(){
+this.ui=this.add.graphics().setDepth(50)
+}
+
+updateUI(){
+this.ui.clear()
+
+let pct=this.player.hp/this.player.maxHp
+this.ui.fillStyle(C.hpGood,1)
+this.ui.fillRect(20,20,150*pct,10)
+
+pct=this.boss.hp/this.boss.maxHp
+this.ui.fillStyle(C.hpLow,1)
+this.ui.fillRect(W/2-120,20,240*pct,10)
+}
+
+update(t,dtRaw){
+const dt=dtRaw/1000
+
+if(this.attackCooldown>0)this.attackCooldown-=dt
+if(this.invincible>0)this.invincible-=dt
+if(this.bossHitTimer>0)this.bossHitTimer-=dt
+
+this.movePlayer(dt)
+this.playerAttack()
+this.updateProjectiles(dt)
+this.updateParticles(dt)
+this.bossAI(dt)
+this.checkCollisions()
+this.updateLighting()
+this.updateUI()
+}
+
+movePlayer(dt){
+let dx=0,dy=0
+const k=this.keys
+
+if(k.left.isDown||k.leftArr.isDown)dx--
+if(k.right.isDown||k.rightArr.isDown)dx++
+if(k.up.isDown||k.upArr.isDown)dy--
+if(k.down.isDown||k.downArr.isDown)dy++
+
+if(dx&&dy){dx*=0.707;dy*=0.707}
+
+this.player.x=Phaser.Math.Clamp(this.player.x+dx*this.player.speed*dt,30,W-30)
+this.player.y=Phaser.Math.Clamp(this.player.y+dy*this.player.speed*dt,30,H-30)
+
+if(dx!==0)this.player.facing=dx>0?1:-1
+
+this.player.container.setPosition(this.player.x,this.player.y)
+this.player.container.setScale(this.player.facing,1)
+}
+
+playerAttack(){
+if(Phaser.Input.Keyboard.JustDown(this.keys.attack)&&this.attackCooldown<=0){
+this.attackCooldown=.4
+this.spawnSlash()
+}
+}
+
+spawnSlash(){
+const p=this.player
+const g=this.add.graphics()
+
+g.lineStyle(3,0xffffff,.9)
+g.arc(0,0,28,-1,1)
+g.strokePath()
+
+g.setPosition(p.x+p.facing*24,p.y)
+
+this.playerAttacks.add(g)
+
+g._slash={life:.15,maxLife:.15}
+}
+
+bossAI(dt){
+this.bossStateTimer-=dt
+
+if(this.bossPhase===1&&this.boss.hp<25){
+this.bossPhase=2
+this.cameras.main.shake(300,.02)
+}
+
+if(this.bossStateTimer<=0){
+this.fireOrbRing()
+this.bossStateTimer=this.bossPhase===2?1.2:2
+}
+}
+
+fireOrbRing(){
+const count=this.bossPhase===2?10:6
+
+for(let i=0;i<count;i++){
+const a=i*(Math.PI*2/count)
+const sp=120
+
+this.spawnOrb(
+this.boss.x,this.boss.y,
+Math.cos(a)*sp,Math.sin(a)*sp
+)
+}
+}
+
+spawnOrb(x,y,vx,vy){
+const g=this.add.graphics()
+
+g.fillStyle(C.orbGlow,.3)
+g.fillCircle(0,0,10)
+
+g.fillStyle(C.orb,1)
+g.fillCircle(0,0,6)
+
+g.setPosition(x,y)
+
+this.projectiles.add(g)
+
+g._orb={x,y,vx,vy,life:4}
+}
+
+updateProjectiles(dt){
+const rem=[]
+
+this.projectiles.getChildren().forEach(g=>{
+const o=g._orb
+if(!o)return
+
+ o.x+=o.vx*dt
+ o.y+=o.vy*dt
+ o.life-=dt
+
+ g.setPosition(o.x,o.y)
+
+ if(o.life<=0)rem.push(g)
+})
+
+rem.forEach(g=>g.destroy())
+
+this.playerAttacks.getChildren().forEach(g=>{
+const s=g._slash
+if(!s)return
+
+s.life-=dt
+
+g.setAlpha(s.life/s.maxLife)
+
+if(s.life<=0)g.destroy()
+})
+}
+
+checkCollisions(){
+
+this.playerAttacks.getChildren().forEach(sg=>{
+this.projectiles.getChildren().forEach(og=>{
+
+const o=og._orb
+
+const dx=sg.x-o.x
+const dy=sg.y-o.y
+
+if(dx*dx+dy*dy<40*40){
+
+og.clear()
+og.fillStyle(C.blueOrb,1)
+og.fillCircle(0,0,8)
+
+ o.blue=true
+ o.vx*=.3
+ o.vy*=.3
+
+}
+
+})
+})
+
+this.projectiles.getChildren().forEach(g=>{
+const o=g._orb
+
+if(!o.blue)return
+
+const dx=o.x-this.boss.x
+const dy=o.y-this.boss.y
+
+if(dx*dx+dy*dy<50*50){
+this.boss.hp-=4
+this.bossHitTimer=.1
+this.cameras.main.shake(120,.01)
+
+g.destroy()
+}
+
+})
+
+if(this.bossHitTimer>0){
+this.boss.container.setAlpha(.5)
+}else{
+this.boss.container.setAlpha(1)
+}
+}
+
+updateParticles(){}
+
+}
+
+const config={
+ type:Phaser.AUTO,
+ width:W,
+ height:H,
+ parent:'game-container',
+ scene:[GameScene],
+ scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH}
+}
+
+new Phaser.Game(config)
+</script>
+</body>
+</html>
