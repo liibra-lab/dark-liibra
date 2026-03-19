@@ -10,7 +10,6 @@ Browser RPG built with Phaser 3. Dark fantasy, 90s aesthetic.
 liibra-dark/
 ├── index.html
 ├── package.json
-├── vite.config.js
 └── src/
     ├── main.js                        # Entry point, Phaser config
     ├── scenes/
